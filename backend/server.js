@@ -1,7 +1,7 @@
-// server.js
 require('dotenv').config();
 const express = require('express');
-const http = require('http');
+const https = require('https'); // Use https module
+const fs = require('fs');       // Use File System module to read certs
 const { Server } = require('socket.io');
 const path = require('path');
 const cors = require('cors');
@@ -10,70 +10,20 @@ const bookingRoutes = require('./routes/bookingRoutes');
 
 // --- Basic Setup ---
 const app = express();
-const server = http.createServer(app);
-const PORT = process.env.PORT || 5000;
-
-// --- Database Connection ---
-connectDB();
+const PORT = process.env.PORT || 11443; // Using a port from your reference
+const HOST = process.env.HOST || '0.0.0.0';   // Using host from your reference
 
 // --- Middleware ---
-// Enable CORS for all routes. This is still useful in development.
-app.use(cors()); 
-
-// Body parsers for JSON and URL-encoded data
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Socket.IO Setup ---
-const io = new Server(server, {
-    cors: {
-        origin: "*", // Allow all origins for Socket.IO
-        methods: ["GET", "POST"]
-    }
-});
-
-// Middleware to attach the `io` instance to every request object
-// This makes it available in your controllers (e.g., req.io)
-app.use((req, res, next) => {
-    req.io = io;
-    next();
-});
-
-// --- Socket.IO Connection Handling ---
-io.on('connection', (socket) => {
-    console.log(`Socket connected: ${socket.id}`);
-
-    // Handler for admin clients to join a specific room
-    socket.on('join-admin-room', () => {
-        socket.join('admins');
-        console.log(`Socket ${socket.id} joined the 'admins' room.`);
-    });
-
-    // Handler for live location updates from drivers
-    socket.on('update-location', (data) => {
-        // Broadcast the location data to all clients in the 'admins' room
-        io.to('admins').emit('location-update', data);
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`Socket disconnected: ${socket.id}`);
-    });
-});
-
-
 // --- API Routes ---
-// All your booking-related API endpoints will be prefixed with /api
 app.use('/api/bookings', bookingRoutes);
 
-
 // --- Serve React Frontend ---
-// 1. Point to the 'dist' folder where the production build of your React app is located.
 const buildPath = path.join(__dirname, 'dist');
 app.use(express.static(buildPath));
-
-// 2. For any GET request that doesn't match an API route or a static file,
-//    serve the index.html file. This is crucial for single-page applications (SPAs)
-//    that use client-side routing (like React Router).
 app.get('*', (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'), (err) => {
         if (err) {
@@ -82,8 +32,62 @@ app.get('*', (req, res) => {
     });
 });
 
+// --- START HTTPS SERVER ---
+async function start() {
+    try {
+        // --- Database Connection ---
+        await connectDB();
+        console.log('MS SQL Database Connected...');
 
-// --- Start Server ---
-server.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
+        // --- HTTPS & Socket.IO Setup ---
+        const httpsOptions = {
+            key:  fs.readFileSync(path.join(__dirname, 'certs', 'mydomain.key')),
+            cert: fs.readFileSync(path.join(__dirname, 'certs', 'certificate.crt')),
+            // ca:   fs.readFileSync(path.join(__dirname, 'certs', 'ca_bundle.crt')), // Optional: include if you have a CA bundle
+        };
+
+        const server = https.createServer(httpsOptions, app);
+        
+        const io = new Server(server, {
+            cors: {
+                origin: "*",
+                methods: ["GET", "POST"]
+            }
+        });
+
+        // Middleware to make `io` accessible in controllers
+        app.use((req, res, next) => {
+            req.io = io;
+            next();
+        });
+
+        // --- Socket.IO Connection Handling ---
+        io.on('connection', (socket) => {
+            console.log(`Socket connected: ${socket.id}`);
+
+            socket.on('join-admin-room', () => {
+                socket.join('admins');
+                console.log(`Socket ${socket.id} joined the 'admins' room.`);
+            });
+
+            socket.on('update-location', (data) => {
+                io.to('admins').emit('location-update', data);
+            });
+
+            socket.on('disconnect', () => {
+                console.log(`Socket disconnected: ${socket.id}`);
+            });
+        });
+
+        // --- Listen for connections ---
+        server.listen(PORT, HOST, () => {
+            console.log(`🚀 HTTPS server with Socket.IO running at https://${HOST}:${PORT}`);
+        });
+
+    } catch (err) {
+        console.error('Failed to start server:', err);
+        process.exit(1);
+    }
+}
+
+start();
