@@ -1,17 +1,17 @@
 require('dotenv').config();
 const express = require('express');
-const https = require('https'); // Use https module
-const fs = require('fs');       // Use File System module to read certs
-const { Server } = require('socket.io');
+const https = require('https'); // MODIFIED: Use https instead of http
+const fs = require('fs');       // MODIFIED: Add file system module to read certs
 const path = require('path');
+const { Server } = require('socket.io');
 const cors = require('cors');
-const { connectDB } = require('./config/db');
+const { connectDB, initializeDatabase } = require('./config/db');
 const bookingRoutes = require('./routes/bookingRoutes');
 
 // --- Basic Setup ---
 const app = express();
-const PORT = process.env.PORT || 11443; // Using a port from your reference
-const HOST = process.env.HOST || '0.0.0.0';   // Using host from your reference
+const PORT = process.env.PORT || 11443;
+const HOST = process.env.HOST || '0.0.0.0';
 
 // --- Middleware ---
 app.use(cors());
@@ -35,19 +35,23 @@ app.get('*', (req, res) => {
 // --- START HTTPS SERVER ---
 async function start() {
     try {
-        // --- Database Connection ---
+        // --- Database Connection and Initialization ---
+        await initializeDatabase();
         await connectDB();
-        console.log('MS SQL Database Connected...');
 
-        // --- HTTPS & Socket.IO Setup ---
+        // --- START: HTTPS Changes ---
+        // Based on your reference server.cjs file
+        // 1. Define paths to your SSL certificate files
         const httpsOptions = {
-            key:  fs.readFileSync(path.join(__dirname, 'certs', 'mydomain.key')),
-            cert: fs.readFileSync(path.join(__dirname, 'certs', 'certificate.crt')),
-            // ca:   fs.readFileSync(path.join(__dirname, 'certs', 'ca_bundle.crt')), // Optional: include if you have a CA bundle
+            key:  fs.readFileSync(path.join(__dirname, 'certs', 'server.key')),
+            cert: fs.readFileSync(path.join(__dirname, 'certs', 'server.crt')),
         };
 
+        // 2. Create the HTTPS server with the options and your Express app
         const server = https.createServer(httpsOptions, app);
-        
+        // --- END: HTTPS Changes ---
+
+
         const io = new Server(server, {
             cors: {
                 origin: "*",
@@ -80,12 +84,19 @@ async function start() {
         });
 
         // --- Listen for connections ---
+        // MODIFIED: Updated log message for HTTPS
         server.listen(PORT, HOST, () => {
             console.log(`🚀 HTTPS server with Socket.IO running at https://${HOST}:${PORT}`);
         });
 
     } catch (err) {
-        console.error('Failed to start server:', err);
+        // MODIFIED: Added specific error message for certs
+        if (err.code === 'ENOENT') {
+            console.error('FATAL ERROR: Could not find SSL certificate files.');
+            console.error('Please make sure `server.key` and `server.crt` exist in the `certs` directory.');
+        } else {
+            console.error('Failed to start server:', err);
+        }
         process.exit(1);
     }
 }
