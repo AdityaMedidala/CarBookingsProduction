@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const https = require('https'); // MODIFIED: Use https instead of http
-const fs = require('fs');       // MODIFIED: Add file system module to read certs
+const http = require('http'); // MODIFIED: Use http instead of https
 const path = require('path');
 const { Server } = require('socket.io');
 const cors = require('cors');
@@ -32,24 +31,17 @@ app.get('*', (req, res) => {
     });
 });
 
-// --- START HTTPS SERVER ---
+// --- START HTTP SERVER ---
 async function start() {
     try {
         // --- Database Connection and Initialization ---
         await initializeDatabase();
         await connectDB();
 
-        // --- START: HTTPS Changes ---
-        // Based on your reference server.cjs file
-        // 1. Define paths to your SSL certificate files
-        const httpsOptions = {
-            key:  fs.readFileSync(path.join(__dirname, 'certs', 'server.key')),
-            cert: fs.readFileSync(path.join(__dirname, 'certs', 'server.crt')),
-        };
-
-        // 2. Create the HTTPS server with the options and your Express app
-        const server = https.createServer(httpsOptions, app);
-        // --- END: HTTPS Changes ---
+        // --- START: HTTP Changes ---
+        // Create the HTTP server with your Express app
+        const server = http.createServer(app);
+        // --- END: HTTP Changes ---
 
 
         const io = new Server(server, {
@@ -84,19 +76,13 @@ async function start() {
         });
 
         // --- Listen for connections ---
-        // MODIFIED: Updated log message for HTTPS
+        // MODIFIED: Updated log message for HTTP
         server.listen(PORT, HOST, () => {
-            console.log(`🚀 HTTPS server with Socket.IO running at https://${HOST}:${PORT}`);
+            console.log(`🚀 HTTP server with Socket.IO running at http://${HOST}:${PORT}`);
         });
 
     } catch (err) {
-        // MODIFIED: Added specific error message for certs
-        if (err.code === 'ENOENT') {
-            console.error('FATAL ERROR: Could not find SSL certificate files.');
-            console.error('Please make sure `server.key` and `server.crt` exist in the `certs` directory.');
-        } else {
-            console.error('Failed to start server:', err);
-        }
+        console.error('Failed to start server:', err);
         process.exit(1);
     }
 }
